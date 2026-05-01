@@ -3,6 +3,9 @@ from kafka import KafkaConsumer
 from app.services.redis_client import r
 import json
 from app.services import storage
+from app.services.mongo_client import signals_collection
+from app.services.db import SessionLocal
+from app.models.incident import Incident
 
 def start_consumer():
     while True:
@@ -26,33 +29,41 @@ def start_consumer():
 
         component = signal["component_id"]
 
-        # 🔍 Check if incident exists in last 10 sec
+        
+         # ✅ Store raw signal in MongoDB
+        signals_collection.insert_one(signal)
+
+        # 🔍 Debounce check
         existing_incident_id = r.get(component)
+
+        db=SessionLocal()
 
         if existing_incident_id:
             print("Reusing incident:", existing_incident_id)
 
-            # Attach signal to existing incident
-            storage.incident_signals.setdefault(existing_incident_id, []).append(signal)
+            
 
         else:
             # 🆕 Create new incident
-            incident_id = str(len(storage.incidents) + 1)
+            incident = Incident(
 
-            incident = {
-                "id": incident_id,
-                "component_id": component,
-                "status": "OPEN",
-                "severity": signal["severity"]
-            }
+            
+                component_id=component,
+                status="OPEN",
+                severity= signal["severity"]
+                
+            )
 
-            storage.incidents.append(incident)
+            
 
             # Save mapping
-            storage.incident_signals[incident_id] = [signal]
+            db.add(incident)
+            db.commit()
+            db.refresh(incident)
 
             # ⏳ Set debounce window (10 sec)
-            r.setex(component, 10, incident_id)
+            r.setex(component, 10, incident.id)
 
-            print("New incident created:", incident_id)
+            print("New incident created:", incident.id)
+        db.close()
 
