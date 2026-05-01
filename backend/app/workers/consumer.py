@@ -1,5 +1,6 @@
 import time
 from kafka import KafkaConsumer
+from app.services.redis_client import r
 import json
 from app.services import storage
 
@@ -23,15 +24,35 @@ def start_consumer():
     for msg in consumer:
         signal = msg.value
 
-        print("Processed signal:", signal)
+        component = signal["component_id"]
 
-        # ✅ Create incident here
-        incident = {
-            "id": len(storage.incidents) + 1,
-            "component_id": signal["component_id"],
-            "status": "OPEN",
-            "severity": signal["severity"]
-        }
+        # 🔍 Check if incident exists in last 10 sec
+        existing_incident_id = r.get(component)
 
-        storage.incidents.append(incident)
+        if existing_incident_id:
+            print("Reusing incident:", existing_incident_id)
+
+            # Attach signal to existing incident
+            storage.incident_signals.setdefault(existing_incident_id, []).append(signal)
+
+        else:
+            # 🆕 Create new incident
+            incident_id = str(len(storage.incidents) + 1)
+
+            incident = {
+                "id": incident_id,
+                "component_id": component,
+                "status": "OPEN",
+                "severity": signal["severity"]
+            }
+
+            storage.incidents.append(incident)
+
+            # Save mapping
+            storage.incident_signals[incident_id] = [signal]
+
+            # ⏳ Set debounce window (10 sec)
+            r.setex(component, 10, incident_id)
+
+            print("New incident created:", incident_id)
 
