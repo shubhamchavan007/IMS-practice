@@ -6,6 +6,7 @@ from app.services import storage
 from app.services.mongo_client import signals_collection
 from app.services.db import SessionLocal
 from app.models.incident import Incident
+from datetime import datetime
 
 def start_consumer():
     while True:
@@ -50,7 +51,8 @@ def start_consumer():
             
                 component_id=component,
                 status="OPEN",
-                severity= signal["severity"]
+                severity= signal["severity"],
+                start_time=datetime.utcnow()
                 
             )
 
