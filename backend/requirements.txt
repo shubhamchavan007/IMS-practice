@@ -3,3 +3,7 @@ uvicorn
 pydantic
 python-dotenv
 kafka-python
+redis
+pymongo
+psycopg2-binary
+sqlalchemy

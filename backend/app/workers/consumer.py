@@ -1,7 +1,12 @@
 import time
 from kafka import KafkaConsumer
+from app.services.redis_client import r
 import json
 from app.services import storage
+from app.services.mongo_client import signals_collection
+from app.services.db import SessionLocal
+from app.models.incident import Incident
+from datetime import datetime
 
 def start_consumer():
     while True:
@@ -23,15 +28,44 @@ def start_consumer():
     for msg in consumer:
         signal = msg.value
 
-        print("Processed signal:", signal)
+        component = signal["component_id"]
 
-        # ✅ Create incident here
-        incident = {
-            "id": len(storage.incidents) + 1,
-            "component_id": signal["component_id"],
-            "status": "OPEN",
-            "severity": signal["severity"]
-        }
+        
+         # ✅ Store raw signal in MongoDB
+        signals_collection.insert_one(signal)
 
-        storage.incidents.append(incident)
+        # 🔍 Debounce check
+        existing_incident_id = r.get(component)
+
+        db=SessionLocal()
+
+        if existing_incident_id:
+            print("Reusing incident:", existing_incident_id)
+
+            
+
+        else:
+            # 🆕 Create new incident
+            incident = Incident(
+
+            
+                component_id=component,
+                status="OPEN",
+                severity= signal["severity"],
+                start_time=datetime.utcnow()
+                
+            )
+
+            
+
+            # Save mapping
+            db.add(incident)
+            db.commit()
+            db.refresh(incident)
+
+            # ⏳ Set debounce window (10 sec)
+            r.setex(component, 10, incident.id)
+
+            print("New incident created:", incident.id)
+        db.close()
 
